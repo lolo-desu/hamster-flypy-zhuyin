@@ -37,6 +37,9 @@ with open(sys.argv[1], 'rb') as f:
 for lib in d['AvailableLibraries']:
     lib['LibraryPath'] = 'librime-sbxlm.a'
     lib.pop('BinaryPath', None)
+    # Headers 目录已删除，必须同步移除 HeadersPath，否则 Xcode 校验报
+    # "Missing path ... as defined by 'HeadersPath'"
+    lib.pop('HeadersPath', None)
 with open(sys.argv[1], 'wb') as f:
     plistlib.dump(d, f)
 PY
