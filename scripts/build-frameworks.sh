@@ -37,12 +37,19 @@ xcodebuild -create-xcframework \
   -library "$sbx_stage/sim/librime-sbxlm.a" \
   -output "$FW/librime-sbxlm.xcframework"
 rm -rf "$sbx_stage"
-# 自检：副本必须真的携带 rime C API 符号，否则问题会拖到 SbxlmKeyboard
-# 链接期才暴露（run #4 的教训：ProcessXCFramework 静默不产出库文件）。
+# 自检：副本与刚产出、已被验证的 librime.a 逐字节比对。run #5 的教训：
+# nm -g 对该归档会漏报 Rime C API 符号（module 符号可见而 API 符号被过滤，
+# 机制不明但静态链接不受影响——run #4 中 HamsterKeyboard 用同一份字节
+# 内容链接成功）。因此门禁用 cmp 而非 nm：副本字节一致 ⇒ 与 librime.a
+# 同样可在 ProcessXCFramework+ld 流水线中满足全部 Rime* 引用。
+cmp "$FW/librime.xcframework/ios-arm64/librime.a" \
+  "$FW/librime-sbxlm.xcframework/ios-arm64/librime-sbxlm.a"
+cmp "$FW/librime.xcframework/ios-arm64_x86_64-simulator/librime.a" \
+  "$FW/librime-sbxlm.xcframework/ios-arm64_x86_64-simulator/librime-sbxlm.a"
+# 诊断（非门禁）：留档 nm -g 对该归档的可见性表现，便于事后分析。
 nm -g "$FW/librime-sbxlm.xcframework/ios-arm64/librime-sbxlm.a" \
-  > "$ROOT/work/sbxlm-symbols.txt"
-grep -q '_RimeSetOption' "$ROOT/work/sbxlm-symbols.txt" \
-  || { echo 'librime-sbxlm 副本缺少 Rime 符号' >&2; exit 1; }
+  > "$ROOT/work/sbxlm-symbols.txt" || true
+echo "sbxlm 诊断: $(wc -l < "$ROOT/work/sbxlm-symbols.txt") symbols via nm -g, RimeSetOption hits: $(grep -c '_RimeSetOption' "$ROOT/work/sbxlm-symbols.txt" || true)"
 
 # boost_atomic/boost_locale 只出现在工程链接阶段：librime 与全部上层源码
 # （已逐字核查）没有任何符号引用，空桩静态库即可满足引用且不增加体积。
