@@ -1,0 +1,48 @@
+name: Build unsigned iOS IPA
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: unsigned-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test keyboard state and mapping
+        run: bash scripts/test.sh
+      - name: Assemble pinned Hamster and Frost
+        run: python3 scripts/prepare.py
+      - name: Restore Rime frameworks with Lua and octagram
+        id: frameworks
+        uses: actions/cache@v4
+        with:
+          path: work/Hamster/Frameworks
+          key: rime-ios-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('upstream.lock.json', 'scripts/prepare.py', 'scripts/build-frameworks.sh') }}
+      - name: Build Rime frameworks
+        if: steps.frameworks.outputs.cache-hit != 'true'
+        run: bash scripts/build-frameworks.sh
+      - name: Archive and package unsigned IPA
+        run: bash scripts/build-ipa.sh
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hamster-Flypy-Zhuyin-unsigned
+          path: |
+            dist/Hamster-Flypy-Zhuyin-unsigned.ipa
+            dist/SHA256SUMS.txt
+            dist/upstream.lock.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-diagnostics
+          path: work/DerivedData/Logs
+          if-no-files-found: ignore

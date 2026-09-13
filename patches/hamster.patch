@@ -1,0 +1,262 @@
+diff --git a/Hamster/Hamster.entitlements b/Hamster/Hamster.entitlements
+index 1aa00e2..615934a 100644
+--- a/Hamster/Hamster.entitlements
++++ b/Hamster/Hamster.entitlements
+@@ -2,23 +2,6 @@
+ <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+ <plist version="1.0">
+ <dict>
+-	<key>com.apple.developer.icloud-container-environment</key>
+-	<string>Production</string>
+-	<key>aps-environment</key>
+-	<string>production</string>
+-	<key>com.apple.developer.icloud-container-identifiers</key>
+-	<array>
+-		<string>iCloud.dev.fuxiao.app.hamsterapp</string>
+-	</array>
+-	<key>com.apple.developer.icloud-services</key>
+-	<array>
+-		<string>CloudDocuments</string>
+-		<string>CloudKit</string>
+-	</array>
+-	<key>com.apple.developer.ubiquity-container-identifiers</key>
+-	<array>
+-		<string>iCloud.dev.fuxiao.app.hamsterapp</string>
+-	</array>
+ 	<key>com.apple.security.application-groups</key>
+ 	<array>
+ 		<string>group.dev.fuxiao.app.Hamster</string>
+diff --git a/Hamster/HamsterDebug.entitlements b/Hamster/HamsterDebug.entitlements
+index 5644f4e..615934a 100644
+--- a/Hamster/HamsterDebug.entitlements
++++ b/Hamster/HamsterDebug.entitlements
+@@ -2,23 +2,6 @@
+ <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+ <plist version="1.0">
+ <dict>
+-	<key>aps-environment</key>
+-	<string>development</string>
+-	<key>com.apple.developer.icloud-container-environment</key>
+-	<string>Development</string>
+-	<key>com.apple.developer.icloud-container-identifiers</key>
+-	<array>
+-		<string>iCloud.dev.fuxiao.app.hamsterapp</string>
+-	</array>
+-	<key>com.apple.developer.icloud-services</key>
+-	<array>
+-		<string>CloudDocuments</string>
+-		<string>CloudKit</string>
+-	</array>
+-	<key>com.apple.developer.ubiquity-container-identifiers</key>
+-	<array>
+-		<string>iCloud.dev.fuxiao.app.hamsterapp</string>
+-	</array>
+ 	<key>com.apple.security.application-groups</key>
+ 	<array>
+ 		<string>group.dev.fuxiao.app.Hamster</string>
+diff --git a/Packages/HamsterKeyboardKit/Package.swift b/Packages/HamsterKeyboardKit/Package.swift
+index 03558f3..12db796 100644
+--- a/Packages/HamsterKeyboardKit/Package.swift
++++ b/Packages/HamsterKeyboardKit/Package.swift
+@@ -25,8 +25,8 @@ let package = Package(
+       name: "librime",
+       path: "../../Frameworks/librime.xcframework"),
+     .binaryTarget(
+-      name: "boost_atomic",
+-      path: "../../Frameworks/boost_atomic.xcframework"),
++      name: "boost_thread",
++      path: "../../Frameworks/boost_thread.xcframework"),
+     .binaryTarget(
+       name: "boost_filesystem",
+       path: "../../Frameworks/boost_filesystem.xcframework"),
+@@ -72,7 +72,7 @@ let package = Package(
+         // "ZippyJSON",
+         "RimeKit",
+         "librime",
+-        "boost_atomic",
++        "boost_thread",
+         "boost_filesystem",
+         "boost_regex",
+         "boost_system",
+diff --git a/Packages/HamsterKeyboardKit/Sources/RimeContext/RimeContext.swift b/Packages/HamsterKeyboardKit/Sources/RimeContext/RimeContext.swift
+index 790c6f4..90728c1 100644
+--- a/Packages/HamsterKeyboardKit/Sources/RimeContext/RimeContext.swift
++++ b/Packages/HamsterKeyboardKit/Sources/RimeContext/RimeContext.swift
+@@ -13,6 +13,16 @@ import RimeKit
+ 
+ /// RIME 运行时上下文
+ public class RimeContext {
++  @MainActor @Published
++  public var flypyZhuyin = FlypyZhuyin()
++
++  @MainActor
++  func refreshFlypyZhuyin() {
++    flypyZhuyin = FlypyZhuyin(
++      enabled: currentSchema?.schemaId == FlypyZhuyin.schemaID && !asciiMode,
++      rawInput: Rime.shared.getInputKeys(), caret: Rime.shared.getCaretPosition())
++  }
++
+   /// 最大候选词数量
+   public private(set) lazy var maximumNumberOfCandidateWords: Int = 100
+ 
+@@ -137,6 +147,7 @@ public extension RimeContext {
+     self.selectCandidatePinyin = nil
+     self.suggestions.removeAll(keepingCapacity: false)
+     Rime.shared.cleanComposition()
++    refreshFlypyZhuyin()
+   }
+ 
+   func resetCommitText() {
+@@ -192,6 +203,7 @@ public extension RimeContext {
+   @MainActor
+   func setAsciiMode(_ model: Bool) {
+     self.asciiMode = model
++    refreshFlypyZhuyin()
+   }
+ 
+   /// RIME 启动
+@@ -597,6 +609,7 @@ extension RimeContext: IRimeNotificationDelegate {
+       // 从当前全部方案列表中获取
+       guard let changeSchema = self.schemas.first(where: { $0.schemaId == schemaID }) else { return }
+       self.setCurrentSchema(changeSchema)
++      self.refreshFlypyZhuyin()
+       self.optionState = changeSchema.schemaName
+       Logger.statistics.info("loading schema callback: currentSchema = \(changeSchema.schemaName), latestSchema = \(currentSchema?.schemaName)")
+     }
+@@ -652,6 +665,7 @@ public extension RimeContext {
+   /// 同步context: 主要是获取当前引擎提供的候选文字, 同时更新rime published属性 userInputKey
+   @MainActor
+   func syncContext() {
++    defer { refreshFlypyZhuyin() }
+     self.pageIndex = 0
+     self.rimeContext = Rime.shared.context()
+     let userInputText = rimeContext?.composition?.preedit ?? ""
+@@ -750,6 +764,7 @@ public extension RimeContext {
+   @MainActor
+   func setCaretPosition(_ position: Int) {
+     Rime.shared.setCaretPosition(position)
++    refreshFlypyZhuyin()
+   }
+ 
+   @MainActor
+diff --git a/Packages/HamsterKeyboardKit/Sources/View/KeyboardButton/KeyboardButton.swift b/Packages/HamsterKeyboardKit/Sources/View/KeyboardButton/KeyboardButton.swift
+index e67712b..5b174c6 100644
+--- a/Packages/HamsterKeyboardKit/Sources/View/KeyboardButton/KeyboardButton.swift
++++ b/Packages/HamsterKeyboardKit/Sources/View/KeyboardButton/KeyboardButton.swift
+@@ -319,6 +319,10 @@ public class KeyboardButton: UIControl {
+ 
+ extension KeyboardButton {
+   var buttonText: String {
++    if case .chinese = keyboardContext.keyboardType,
++       let text = rimeContext.flypyZhuyin.label(for: item.action.flypyKey ?? "") {
++      return text
++    }
+     if keyboardContext.keyboardType.isCustom, let buttonText = item.key?.label.text, !buttonText.isEmpty {
+       return buttonText
+     }
+diff --git a/Packages/HamsterKeyboardKit/Sources/View/KeyboardButton/KeyboardButtonContent.swift b/Packages/HamsterKeyboardKit/Sources/View/KeyboardButton/KeyboardButtonContent.swift
+index 1cbfb90..87763b4 100644
+--- a/Packages/HamsterKeyboardKit/Sources/View/KeyboardButton/KeyboardButtonContent.swift
++++ b/Packages/HamsterKeyboardKit/Sources/View/KeyboardButton/KeyboardButtonContent.swift
+@@ -5,6 +5,7 @@
+ //  Created by morse on 2023/8/10.
+ //
+ 
++import Combine
+ import HamsterKit
+ import HamsterUIKit
+ import UIKit
+@@ -18,6 +19,7 @@ public class KeyboardButtonContentView: NibLessView {
+   private var style: KeyboardButtonStyle
+   private let keyboardContext: KeyboardContext
+   private let rimeContext: RimeContext
++  private var subscriptions = Set<AnyCancellable>()
+   private var oldBounds: CGRect = .zero
+ 
+   private lazy var spaceContentView: SpaceContentView = {
+@@ -69,6 +71,10 @@ public class KeyboardButtonContentView: NibLessView {
+ 
+   /// 按钮显示文本
+   var buttonText: String {
++    if case .chinese = keyboardContext.keyboardType,
++       let text = rimeContext.flypyZhuyin.label(for: action.flypyKey ?? "") {
++      return text
++    }
+     if keyboardContext.keyboardType.isCustom, let buttonText = item.key?.label.text, !buttonText.isEmpty {
+       return buttonText
+     }
+@@ -87,6 +93,14 @@ public class KeyboardButtonContentView: NibLessView {
+ 
+     setupContentView()
+     setupAppearance()
++    rimeContext.$flypyZhuyin
++      .removeDuplicates()
++      .sink { [weak self] state in
++        guard let self = self, case .chinese = self.keyboardContext.keyboardType else { return }
++        let original = self.appearance.buttonText(for: self.action) ?? ""
++        self.textContentView.setTextValue(state.label(for: self.action.flypyKey ?? "") ?? original)
++      }
++      .store(in: &subscriptions)
+   }
+ 
+   // MARK: - Layout
+@@ -221,3 +235,13 @@ public class KeyboardButtonContentView: NibLessView {
+     }
+   }
+ }
++
++// Read the action, not its Latin caption: Chinese captions may be uppercase.
++extension KeyboardAction {
++  var flypyKey: String? {
++    switch self {
++    case .character(let key), .characterOfDark(let key): return key
++    default: return nil
++    }
++  }
++}
+diff --git a/Packages/RimeKit/Package.swift b/Packages/RimeKit/Package.swift
+index ab7e833..e3e086a 100644
+--- a/Packages/RimeKit/Package.swift
++++ b/Packages/RimeKit/Package.swift
+@@ -19,8 +19,8 @@ let package = Package(
+       name: "librimeRIME",
+       path: "../../Frameworks/librime.xcframework"),
+     .binaryTarget(
+-      name: "boost_atomicRIME",
+-      path: "../../Frameworks/boost_atomic.xcframework"),
++      name: "boost_threadRIME",
++      path: "../../Frameworks/boost_thread.xcframework"),
+     .binaryTarget(
+       name: "boost_filesystemRIME",
+       path: "../../Frameworks/boost_filesystem.xcframework"),
+@@ -64,7 +64,7 @@ let package = Package(
+       dependencies: [
+         "RimeKit",
+         "librimeRIME",
+-        "boost_atomicRIME",
++        "boost_threadRIME",
+         "boost_filesystemRIME",
+         "boost_regexRIME",
+         "boost_systemRIME",
+diff --git a/Packages/RimeKit/Sources/ObjC/irime_api.m b/Packages/RimeKit/Sources/ObjC/irime_api.m
+index 96019db..93487af 100644
+--- a/Packages/RimeKit/Sources/ObjC/irime_api.m
++++ b/Packages/RimeKit/Sources/ObjC/irime_api.m
+@@ -5,7 +5,7 @@
+ static id<IRimeNotificationDelegate> notificationDelegate = nil;
+ 
+ // 定义加载模块
+-// static RIME_MODULE_LIST(hamster_modules, "default", "levers", "lua");
++static RIME_MODULE_LIST(hamster_modules, "default", "levers", "lua", "octagram");
+ 
+ static void rimeNotificationHandler(void *contextObject,
+                                     RimeSessionId sessionId,
+@@ -93,7 +93,7 @@ static void rimeNotificationHandler(void *contextObject,
+     traits -> app_name = [appName UTF8String];
+   }
+   // 模块定义
+-  // traits -> modules = hamster_modules;
++  traits -> modules = hamster_modules;
+   if (prebuiltDataDir != nil) {
+     traits -> prebuilt_data_dir = [prebuiltDataDir UTF8String];
+   }
