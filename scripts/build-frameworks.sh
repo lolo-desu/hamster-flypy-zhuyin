@@ -23,26 +23,26 @@ FW="$ROOT/work/Hamster/Frameworks"
 # Frameworks 阶段只靠它提供 rime_* 符号，因此直接复用刚编好的 librime。
 # 注意：不能原样整目录复制——同一内部二进制名 librime.a 会让 Xcode 在
 # ProcessXCFramework 阶段判定 "Multiple commands produce"（头文件与静态库
-# 产物路径都冲突），因此改名为 librime-sbxlm.a 并去掉头文件目录。
+# 产物路径都冲突）。这里把两个 slice 的库改名为 librime-sbxlm.a 后用
+# xcodebuild -create-xcframework 重新打包：Info.plist 由 Xcode 工具自己写，
+# 结构与下方 boost 桩框架及上游 librime 原包完全同构（后者均已验证可被
+# ProcessXCFramework 正确处理并参与链接）；不带 Headers，避免头文件重复产物。
 rm -rf "$FW/librime-sbxlm.xcframework"
-cp -R "$FW/librime.xcframework" "$FW/librime-sbxlm.xcframework"
-for slice in "$FW/librime-sbxlm.xcframework"/ios-*; do
-  mv "$slice/librime.a" "$slice/librime-sbxlm.a"
-  rm -rf "$slice/Headers"
-done
-python3 - "$FW/librime-sbxlm.xcframework/Info.plist" <<'PY'
-import plistlib, sys
-with open(sys.argv[1], 'rb') as f:
-    d = plistlib.load(f)
-for lib in d['AvailableLibraries']:
-    lib['LibraryPath'] = 'librime-sbxlm.a'
-    lib.pop('BinaryPath', None)
-    # Headers 目录已删除，必须同步移除 HeadersPath，否则 Xcode 校验报
-    # "Missing path ... as defined by 'HeadersPath'"
-    lib.pop('HeadersPath', None)
-with open(sys.argv[1], 'wb') as f:
-    plistlib.dump(d, f)
-PY
+sbx_stage=$(mktemp -d)
+mkdir -p "$sbx_stage/device" "$sbx_stage/sim"
+cp "$FW/librime.xcframework/ios-arm64/librime.a" "$sbx_stage/device/librime-sbxlm.a"
+cp "$FW/librime.xcframework/ios-arm64_x86_64-simulator/librime.a" "$sbx_stage/sim/librime-sbxlm.a"
+xcodebuild -create-xcframework \
+  -library "$sbx_stage/device/librime-sbxlm.a" \
+  -library "$sbx_stage/sim/librime-sbxlm.a" \
+  -output "$FW/librime-sbxlm.xcframework"
+rm -rf "$sbx_stage"
+# 自检：副本必须真的携带 rime C API 符号，否则问题会拖到 SbxlmKeyboard
+# 链接期才暴露（run #4 的教训：ProcessXCFramework 静默不产出库文件）。
+nm -g "$FW/librime-sbxlm.xcframework/ios-arm64/librime-sbxlm.a" \
+  > "$ROOT/work/sbxlm-symbols.txt"
+grep -q '_RimeSetOption' "$ROOT/work/sbxlm-symbols.txt" \
+  || { echo 'librime-sbxlm 副本缺少 Rime 符号' >&2; exit 1; }
 
 # boost_atomic/boost_locale 只出现在工程链接阶段：librime 与全部上层源码
 # （已逐字核查）没有任何符号引用，空桩静态库即可满足引用且不增加体积。
