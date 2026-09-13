@@ -21,8 +21,25 @@ FW="$ROOT/work/Hamster/Frameworks"
 # librime-sbxlm.xcframework 供独立的 SbxlmKeyboard target 链接（上游原包就是
 # 一个完整的 librime 构建加声笔插件）。本工程不含声笔方案，但该 target 的
 # Frameworks 阶段只靠它提供 rime_* 符号，因此直接复用刚编好的 librime。
+# 注意：不能原样整目录复制——同一内部二进制名 librime.a 会让 Xcode 在
+# ProcessXCFramework 阶段判定 "Multiple commands produce"（头文件与静态库
+# 产物路径都冲突），因此改名为 librime-sbxlm.a 并去掉头文件目录。
 rm -rf "$FW/librime-sbxlm.xcframework"
 cp -R "$FW/librime.xcframework" "$FW/librime-sbxlm.xcframework"
+for slice in "$FW/librime-sbxlm.xcframework"/ios-*; do
+  mv "$slice/librime.a" "$slice/librime-sbxlm.a"
+  rm -rf "$slice/Headers"
+done
+python3 - "$FW/librime-sbxlm.xcframework/Info.plist" <<'PY'
+import plistlib, sys
+with open(sys.argv[1], 'rb') as f:
+    d = plistlib.load(f)
+for lib in d['AvailableLibraries']:
+    lib['LibraryPath'] = 'librime-sbxlm.a'
+    lib.pop('BinaryPath', None)
+with open(sys.argv[1], 'wb') as f:
+    plistlib.dump(d, f)
+PY
 
 # boost_atomic/boost_locale 只出现在工程链接阶段：librime 与全部上层源码
 # （已逐字核查）没有任何符号引用，空桩静态库即可满足引用且不增加体积。
