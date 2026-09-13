@@ -26,7 +26,10 @@
 4. 成功后下载 `Hamster-Flypy-Zhuyin-unsigned` artifact，解压得到 IPA、SHA256SUMS 和版本记录。
 5. IPA 构建关闭代码签名，直接以 `Payload/Hamster.app` 打包；不需要证书、Apple ID 或签名 secrets。
 
-目前上游旧的 `imfuxiao/LibrimeKit/2.4.2` 下载链接返回 404，因此没有沿用它。可用的新框架发布包不含白霜语法插件，本工程用现有源码构建流程补齐插件，而不悄悄忽略排序模型。
+目前上游旧的 `imfuxiao/LibrimeKit/2.4.2` 下载链接返回 404，因此没有沿用它。可用的新框架发布包不含白霜语法插件，本工程用现有源码构建流程补齐插件，而不悄悄忽略排序模型。此外，Hamster 工程还引用了源码构建不产出的三个框架，`build-frameworks.sh` 按下述方式补齐，并逐项校验全部 12 个框架就位后才进入归档：
+
+- `librime-sbxlm`：供独立的 SbxlmKeyboard target 链接，上游原包就是一个完整 librime 构建（含声笔插件）。本工程不含声笔方案，直接复用刚编好的 librime 副本提供 `rime_*` 符号；
+- `boost_atomic` / `boost_locale`：仅存在于工程链接阶段的引用，librime 与全部上层源码均未引用其符号（已逐字核查），用空桩静态库打包成 xcframework 满足引用，不增加体积。
 
 ## 本地检查与构建
 
